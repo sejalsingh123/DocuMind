@@ -28,6 +28,11 @@ client = genai.Client(
     api_key=os.getenv("GEMINI_API_KEY")
 )
 
+import time
+from google.genai import errors
+
+
+
 def extract_text_from_pdf(pdf_file):
 
     pdf_bytes = pdf_file.getvalue()
@@ -209,24 +214,42 @@ def rewrite_question(question, chat_history):
     prompt = f"""
 You are a question rewriting assistant.
 
-Convert the user's latest question into a
-standalone question that can be understood
-without conversation history.
+Given the conversation history and the user's latest question,
+rewrite the latest question into a standalone question.
 
-Do not answer the question.
-
-Conversation:
-{history}
+Conversation history:
+{chat_history}
 
 Latest question:
 {question}
 
-Return ONLY the rewritten standalone question.
+Return ONLY the rewritten question.
 """
 
-    response = client.models.generate_content(
-        model="gemini-3.5-flash-lite",
-        contents=prompt
-    )
+    models = [
+        "gemini-3.5-flash-lite",
+        "gemini-3.5-flash",
+    ]
 
-    return response.text.strip()
+    for model in models:
+        for attempt in range(3):
+
+            try:
+                response = client.models.generate_content(
+                    model=model,
+                    contents=prompt
+                )
+
+                return response.text.strip()
+
+            except errors.ServerError as e:
+
+                if attempt < 2:
+                    wait_time = 2 ** attempt
+                    time.sleep(wait_time)
+                else:
+                    print(f"{model} unavailable: {e}")
+
+    # Important fallback:
+    # Don't crash the entire RAG application.
+    return question
